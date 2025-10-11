@@ -1,0 +1,148 @@
+import express from 'express';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import cors from 'cors';
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Optional: enforce validators on all update operations globally
+mongoose.set('runValidators', true); // can also be per-call in controller [web:37]
+
+const { MONGODB_URI, PORT = 3000 } = process.env;
+
+mongoose
+  .connect(MONGODB_URI, { dbName: 'nimbus_students' })
+  .then(() => console.log('MongoDB connected'))
+  .catch((err) => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  });
+
+// Routes
+import studentRouter from './routes/student.routes.js';
+app.use('/students', studentRouter); // route layer delegates to controller [web:32]
+
+app.get('/', (_req, res) => res.json({ status: 'ok' }));
+
+// Central error handler
+app.use((err, _req, res, _next) => {
+  const code = res.statusCode !== 200 ? res.statusCode : 500;
+  res.status(code).json({ error: err.message });
+});
+
+app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
+import mongoose from 'mongoose';
+
+const studentSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, 'Name is required'],
+      trim: true,
+      minlength: [2, 'Name must be at least 2 characters']
+    },
+    age: {
+      type: Number,
+      required: [true, 'Age is required'],
+      min: [16, 'Age must be ≥ 16']
+    },
+    course: {
+      type: String,
+      required: [true, 'Course is required'],
+      trim: true
+    }
+  },
+  { timestamps: true }
+);
+
+// Mongoose runs validators on save(); for findByIdAndUpdate we’ll enable runValidators in controller or globally [web:6][web:8][web:37]
+export default mongoose.model('Student', studentSchema);
+import Student from '../models/student.model.js';
+
+// Create
+export const createStudent = async (req, res, next) => {
+  try {
+    const doc = await Student.create(req.body); // validates on create [web:8]
+    res.status(201).json(doc);
+  } catch (err) {
+    res.status(400);
+    next(err);
+  }
+};
+
+// Read all
+export const getStudents = async (_req, res, next) => {
+  try {
+    const docs = await Student.find(); // model query API [web:8]
+    res.json(docs);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Read by id
+export const getStudentById = async (req, res, next) => {
+  try {
+    const doc = await Student.findById(req.params.id); // helper for ObjectId [web:8]
+    if (!doc) return res.status(404).json({ error: 'Student not found' });
+    res.json(doc);
+  } catch (err) {
+    res.status(400);
+    next(err);
+  }
+};
+
+// Update by id
+export const updateStudent = async (req, res, next) => {
+  try {
+    const updated = await Student.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      {
+        new: true,            // return updated doc [web:9]
+        runValidators: true,  // enforce schema validation on updates [web:8][web:6][web:37],
+        context: 'query'
+      }
+    );
+    if (!updated) return res.status(404).json({ error: 'Student not found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(400);
+    next(err);
+  }
+};
+
+// Delete by id
+export const deleteStudent = async (req, res, next) => {
+  try {
+    const deleted = await Student.findByIdAndDelete(req.params.id); // shorthand [web:8]
+    if (!deleted) return res.status(404).json({ error: 'Student not found' });
+    res.json({ message: 'Student deleted', student: deleted });
+  } catch (err) {
+    res.status(400);
+    next(err);
+  }
+};
+import { Router } from 'express';
+import {
+  createStudent,
+  getStudents,
+  getStudentById,
+  updateStudent,
+  deleteStudent
+} from '../controllers/student.controller.js';
+
+const router = Router();
+
+// RESTful routes delegating to controller handlers [web:32]
+router.get('/', getStudents);
+router.get('/:id', getStudentById);
+router.post('/', createStudent);
+router.put('/:id', updateStudent);
+router.delete('/:id', deleteStudent);
+
+export default router;
