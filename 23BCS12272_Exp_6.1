@@ -1,0 +1,39 @@
+// file: server.js
+const express = require('express');
+const app = express();
+const PORT = 3000;
+
+// 1) Logging middleware (global)
+app.use((req, res, next) => {
+  const ts = new Date().toISOString();
+  console.log(`[${ts}] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+// 2) Bearer token auth middleware
+const requireBearer = (req, res, next) => {
+  const auth = req.headers.authorization || '';
+  // Expected form: "Bearer mysecrettoken"
+  const [scheme, token] = auth.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ message: 'Authorization header missing or incorrect' });
+  }
+  if (token !== 'mysecrettoken') {
+    return res.status(403).json({ message: 'Invalid Bearer token' });
+  }
+  next();
+};
+
+// Public route (no auth)
+app.get('/public', (req, res) => {
+  res.status(200).send('This is a public route. No authentication required.');
+});
+
+// Protected route (requires Bearer)
+app.get('/protected', requireBearer, (req, res) => {
+  res.status(200).send('You have accessed a protected route with a valid Bearer token!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+});
