@@ -1,148 +1,88 @@
-import express from 'express';
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import cors from 'cors';
+// Select DB
+use studentsdb;
 
-dotenv.config();
+// Start clean
+db.students.drop();
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+/* -------- Inserts -------- */
+db.students.insertMany([
+  { name: "Alice Johnson",  age: 20, course: "Computer Science" },
+  { name: "Bob Smith",      age: 22, course: "Mechanical Engineering" },
+  { name: "Charlie Lee",    age: 19, course: "Business Administration" }
+]);
 
-// Optional: enforce validators on all update operations globally
-mongoose.set('runValidators', true); // can also be per-call in controller [web:37]
+/* -------- Helpful Indexes -------- */
+db.students.createIndex({ name: 1 });
+db.students.createIndex({ course: 1 });
 
-const { MONGODB_URI, PORT = 3000 } = process.env;
+/* -------- Reads -------- */
+// Get all students
+db.students.find({});
 
-mongoose
-  .connect(MONGODB_URI, { dbName: 'nimbus_students' })
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
-  });
+// Get one by ObjectId (replace with a real _id from your DB)
+const aliceId = db.students.findOne({ name: "Alice Johnson" })._id;
+db.students.find({ _id: aliceId });
 
-// Routes
-import studentRouter from './routes/student.routes.js';
-app.use('/students', studentRouter); // route layer delegates to controller [web:32]
+// Paginate and sort (page 1 size 2 by name asc)
+db.students.find({}).sort({ name: 1 }).skip(0).limit(2);
 
-app.get('/', (_req, res) => res.json({ status: 'ok' }));
+// Projection: only name and course
+db.students.find({}, { name: 1, course: 1 });
 
-// Central error handler
-app.use((err, _req, res, _next) => {
-  const code = res.statusCode !== 200 ? res.statusCode : 500;
-  res.status(code).json({ error: err.message });
-});
+// Filter by course
+db.students.find({ course: "Mechanical Engineering" });
 
-app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
-import mongoose from 'mongoose';
+// Count per course
+db.students.aggregate([
+  { $group: { _id: "$course", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+]);
 
-const studentSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true,
-      minlength: [2, 'Name must be at least 2 characters']
-    },
-    age: {
-      type: Number,
-      required: [true, 'Age is required'],
-      min: [16, 'Age must be ≥ 16']
-    },
-    course: {
-      type: String,
-      required: [true, 'Course is required'],
-      trim: true
-    }
-  },
-  { timestamps: true }
+/* -------- Creates -------- */
+// Create single
+db.students.insertOne({ name: "David Miller", age: 21, course: "Electrical Engineering" });
+
+// Create many
+db.students.insertMany([
+  { name: "Ella Perez", age: 23, course: "Computer Science" },
+  { name: "Farhan Ali", age: 24, course: "Civil Engineering" }
+]);
+
+/* -------- Updates -------- */
+// Replace whole document by id (example)
+const bobId = db.students.findOne({ name: "Bob Smith" })._id;
+db.students.replaceOne(
+  { _id: bobId },
+  { name: "Bob Smith", age: 23, course: "Mechanical Engineering" }
 );
 
-// Mongoose runs validators on save(); for findByIdAndUpdate we’ll enable runValidators in controller or globally [web:6][web:8][web:37]
-export default mongoose.model('Student', studentSchema);
-import Student from '../models/student.model.js';
+// Partial update: set fields
+db.students.updateOne(
+  { name: "Alice Johnson" },
+  { $set: { age: 21 } }
+);
 
-// Create
-export const createStudent = async (req, res, next) => {
-  try {
-    const doc = await Student.create(req.body); // validates on create [web:8]
-    res.status(201).json(doc);
-  } catch (err) {
-    res.status(400);
-    next(err);
-  }
-};
+// Partial update with validation logic example: increment age
+db.students.updateMany(
+  { course: "Computer Science" },
+  { $inc: { age: 1 } }
+);
 
-// Read all
-export const getStudents = async (_req, res, next) => {
-  try {
-    const docs = await Student.find(); // model query API [web:8]
-    res.json(docs);
-  } catch (err) {
-    next(err);
-  }
-};
+// Upsert example (create if not exists)
+db.students.updateOne(
+  { name: "Grace Kim" },
+  { $set: { age: 22, course: "Information Systems" } },
+  { upsert: true }
+);
 
-// Read by id
-export const getStudentById = async (req, res, next) => {
-  try {
-    const doc = await Student.findById(req.params.id); // helper for ObjectId [web:8]
-    if (!doc) return res.status(404).json({ error: 'Student not found' });
-    res.json(doc);
-  } catch (err) {
-    res.status(400);
-    next(err);
-  }
-};
+/* -------- Deletes -------- */
+// Delete one by id
+db.students.deleteOne({ _id: bobId });
 
-// Update by id
-export const updateStudent = async (req, res, next) => {
-  try {
-    const updated = await Student.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,            // return updated doc [web:9]
-        runValidators: true,  // enforce schema validation on updates [web:8][web:6][web:37],
-        context: 'query'
-      }
-    );
-    if (!updated) return res.status(404).json({ error: 'Student not found' });
-    res.json(updated);
-  } catch (err) {
-    res.status(400);
-    next(err);
-  }
-};
+// Bulk delete by filter
+db.students.deleteMany({ course: "Civil Engineering" });
 
-// Delete by id
-export const deleteStudent = async (req, res, next) => {
-  try {
-    const deleted = await Student.findByIdAndDelete(req.params.id); // shorthand [web:8]
-    if (!deleted) return res.status(404).json({ error: 'Student not found' });
-    res.json({ message: 'Student deleted', student: deleted });
-  } catch (err) {
-    res.status(400);
-    next(err);
-  }
-};
-import { Router } from 'express';
-import {
-  createStudent,
-  getStudents,
-  getStudentById,
-  updateStudent,
-  deleteStudent
-} from '../controllers/student.controller.js';
+/* -------- Final checks -------- */
+db.students.find({}).sort({ createdAt: 1 });
+db.students.countDocuments({});
 
-const router = Router();
-
-// RESTful routes delegating to controller handlers [web:32]
-router.get('/', getStudents);
-router.get('/:id', getStudentById);
-router.post('/', createStudent);
-router.put('/:id', updateStudent);
-router.delete('/:id', deleteStudent);
-
-export default router;
