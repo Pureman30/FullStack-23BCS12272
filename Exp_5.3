@@ -1,0 +1,94 @@
+// Use database
+use ecommerce;
+
+// Clean slate
+db.products.drop();
+
+// Create sample documents
+db.products.insertMany([
+  {
+    name: "Running Shoes",
+    price: 120,
+    category: "Footwear",
+    variants: [
+      { color: "Red",  size: "M", stock: 10 },
+      { color: "Blue", size: "L", stock: 5 }
+    ]
+  },
+  {
+    name: "Smartphone",
+    price: 699,
+    category: "Electronics",
+    variants: []
+  },
+  {
+    name: "Winter Jacket",
+    price: 200,
+    category: "Apparel",
+    variants: [
+      { color: "Black", size: "S", stock: 8 },
+      { color: "Gray",  size: "M", stock: 12 }
+    ]
+  }
+]);
+
+// Helpful indexes
+db.products.createIndex({ name: 1 });
+db.products.createIndex({ category: 1 });
+db.products.createIndex({ category: 1, "variants.color": 1, "variants.size": 1 });
+
+// 1) Get all products (full docs)
+db.products.find({});
+
+// 2) Filter by category
+db.products.find({ category: "Electronics" });
+
+// 3) Project specific variant details for all variants (no filter)
+db.products.aggregate([
+  { $project: { name: 1, category: 1, variants: { color: 1, size: 1, stock: 1 } } }
+]);
+
+// 4) Get only variants with a specific color (flattened)
+db.products.aggregate([
+  { $match: { "variants.color": "Blue" } },
+  { $unwind: "$variants" },
+  { $match: { "variants.color": "Blue" } },
+  { $project: { name: 1, category: 1, "variants.color": 1, "variants.size": 1, "variants.stock": 1 } }
+]);
+
+// 5) Update a specific variant's stock (by product + color + size)
+db.products.updateOne(
+  { name: "Running Shoes", "variants.color": "Blue", "variants.size": "L" },
+  { $set: { "variants.$.stock": 9 } }
+);
+
+// 6) Push a new variant into an existing product
+db.products.updateOne(
+  { name: "Running Shoes" },
+  { $push: { variants: { color: "Green", size: "S", stock: 7 } } }
+);
+
+// 7) Pull (remove) a variant from a product
+db.products.updateOne(
+  { name: "Winter Jacket" },
+  { $pull: { variants: { color: "Black", size: "S" } } }
+);
+
+// 8) Increase stock for all Gray variants by +3
+db.products.updateMany(
+  { "variants.color": "Gray" },
+  { $inc: { "variants.$[v].stock": 3 } },
+  { arrayFilters: [ { "v.color": "Gray" } ] }
+);
+
+// 9) Find products where any variant is out of stock
+db.products.find({ "variants.stock": { $lte: 0 } });
+
+// 10) Paginate all products (page 1, size 2)
+db.products.find({}).sort({ name: 1 }).skip(0).limit(2);
+
+// 11) Count products per category
+db.products.aggregate([
+  { $group: { _id: "$category", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+]);
