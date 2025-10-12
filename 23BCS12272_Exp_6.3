@@ -1,0 +1,87 @@
+//Model
+
+// models/User.js
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  balance: { type: Number, required: true, min: 0 }
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+//App and routes
+
+// server.js
+const express = require('express');
+const mongoose = require('mongoose');
+const User = require('./models/User');
+
+const app = express();
+app.use(express.json());
+
+async function start() {
+  await mongoose.connect('mongodb://127.0.0.1:27017/bank_demo');
+  app.listen(3000, () => console.log('API on http://localhost:3000'));
+}
+start();
+
+// Seed: create two users (Alice 1000, Bob 500)
+app.post('/create-users', async (req, res) => {
+  const docs = await User.create([{ name: 'Alice', balance: 1000 }, { name: 'Bob', balance: 500 }]);
+  res.status(201).json({ message: 'Users created', users: docs });
+});
+
+// Get user by id
+app.get('/users/:id', async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: 'User not found' });
+  res.json(user);
+});
+
+// Transfer endpoint without transactions
+app.post('/transfer', async (req, res) => {
+  const { fromUserId, toUserId, amount } = req.body || {};
+  const amt = Number(amount);
+
+  if (!fromUserId || !toUserId || !Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ message: 'fromUserId, toUserId, and a positive amount are required' });
+  }
+  if (fromUserId === toUserId) {
+    return res.status(400).json({ message: 'Cannot transfer to the same account' });
+  }
+
+  // 1) Guarded decrement of sender; only succeeds if balance >= amt
+  const sender = await User.findOneAndUpdate(
+    { _id: fromUserId, balance: { $gte: amt } },
+    { $inc: { balance: -amt } },
+    { new: true }
+  );
+
+  if (!sender) {
+    // Determine reason: missing user or insufficient funds
+    const exists = await User.exists({ _id: fromUserId });
+    return res
+      .status(400)
+      .json({ message: exists ? 'Insufficient balance' : 'Sender account not found' });
+  }
+
+  // 2) Increment receiver; if receiver missing, revert sender to keep state consistent
+  const receiver = await User.findOneAndUpdate(
+    { _id: toUserId },
+    { $inc: { balance: amt } },
+    { new: true }
+  );
+
+  if (!receiver) {
+    // rollback sender debit by adding back amount (single-doc atomic write)
+    await User.updateOne({ _id: sender._id }, { $inc: { balance: amt } });
+    return res.status(404).json({ message: 'Receiver account not found; transfer reverted' });
+  }
+
+  return res.json({
+    message: `Transferred $${amt} from ${sender.name} to ${receiver.name}`,
+    senderBalance: sender.balance,
+    receiverBalance: receiver.balance
+  });
+});
