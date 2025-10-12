@@ -1,0 +1,71 @@
+//Setup
+
+// server.js
+const express = require('express');
+const jwt = require('jsonwebtoken');
+
+const app = express();
+app.use(express.json());
+
+const JWT_SECRET = 'super_secret_key';       // for demo only; use env vars in real apps
+const TOKEN_TTL = '1h';                      // typical short-lived token window
+let balance = 1000;                          // in-memory balance for demo
+
+//Auth middleware
+
+// Verify JWT from Authorization: Bearer <token>
+function requireJwt(req, res, next) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Missing or malformed Authorization header' });
+  }
+  const token = auth.split(' ')[1];
+  jwt.verify(token, JWT_SECRET, (err, payload) => {
+    if (err) return res.status(403).json({ message: 'Invalid or expired token' });
+    req.user = payload; // attach decoded payload
+    next();
+  });
+}
+
+//Routes
+
+// POST /login -> returns a signed JWT on valid credentials
+app.post('/login', (req, res) => {
+  const { username, password } = req.body || {};
+  // Hardcoded demo credentials
+  if (username !== 'user1' || password !== 'password123') {
+    return res.status(401).json({ message: 'Invalid credentials' });
+  }
+  const token = jwt.sign({ sub: username, role: 'customer' }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  res.json({ token });
+});
+
+// GET /balance (protected)
+app.get('/balance', requireJwt, (req, res) => {
+  res.json({ balance });
+});
+
+// POST /deposit { amount } (protected)
+app.post('/deposit', requireJwt, (req, res) => {
+  const amt = Number(req.body?.amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ message: 'Amount must be a positive number' });
+  }
+  balance += amt;
+  res.json({ message: `Deposited $${amt}`, newBalance: balance });
+});
+
+// POST /withdraw { amount } (protected)
+app.post('/withdraw', requireJwt, (req, res) => {
+  const amt = Number(req.body?.amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ message: 'Amount must be a positive number' });
+  }
+  if (amt > balance) {
+    return res.status(409).json({ message: 'Insufficient balance' });
+  }
+  balance -= amt;
+  res.json({ message: `Withdrew $${amt}`, newBalance: balance });
+});
+
+app.listen(3000, () => console.log('API running on http://localhost:3000'));
