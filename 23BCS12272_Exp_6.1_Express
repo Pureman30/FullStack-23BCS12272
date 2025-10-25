@@ -1,39 +1,60 @@
-// file: server.js
-const express = require('express');
+import express from "express";
+
 const app = express();
-const PORT = 3000;
+app.use(express.json());
 
-// 1) Logging middleware (global)
-app.use((req, res, next) => {
-  const ts = new Date().toISOString();
-  console.log(`[${ts}] ${req.method} ${req.originalUrl}`);
-  next();
-});
-
-// 2) Bearer token auth middleware
-const requireBearer = (req, res, next) => {
-  const auth = req.headers.authorization || '';
-  // Expected form: "Bearer mysecrettoken"
-  const [scheme, token] = auth.split(' ');
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ message: 'Authorization header missing or incorrect' });
-  }
-  if (token !== 'mysecrettoken') {
-    return res.status(403).json({ message: 'Invalid Bearer token' });
-  }
+// ===============================
+// Middleware: Request Logger
+// ===============================
+const logger = (req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    console.log(
+      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`
+    );
+  });
   next();
 };
 
-// Public route (no auth)
-app.get('/public', (req, res) => {
-  res.status(200).send('This is a public route. No authentication required.');
+// ===============================
+// Middleware: Bearer Token Authentication
+// ===============================
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing or invalid Authorization header" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const VALID_TOKEN = "mysecrettoken123"; // Replace with real token or JWT verification
+
+  if (token !== VALID_TOKEN) {
+    return res.status(403).json({ error: "Invalid token" });
+  }
+
+  next();
+};
+
+// ===============================
+// Apply Middleware
+// ===============================
+app.use(logger);
+
+// ===============================
+// Routes
+// ===============================
+app.get("/", (req, res) => {
+  res.send("Welcome to Middleware Demo 🚀");
 });
 
-// Protected route (requires Bearer)
-app.get('/protected', requireBearer, (req, res) => {
-  res.status(200).send('You have accessed a protected route with a valid Bearer token!');
+app.get("/secure", authenticateToken, (req, res) => {
+  res.json({ message: "Access granted ✅", user: "Dhruv" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+// ===============================
+// Server Start
+// ===============================
+const PORT = 5000;
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
